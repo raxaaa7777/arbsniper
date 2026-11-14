@@ -1,44 +1,102 @@
-name: Build Desktop App EXE (Web/JS)
+name: Universal Build Windows EXE
 
 on:
   push:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+ env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-      - name: Скачивание кода
+      - name: Скачивание кода репозитория
         uses: actions/checkout@v4
 
-      - name: Установка Node.js
+      - name: Установка Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
-      - name: Подготовка и упаковка в .exe
+      - name: Авто-определение типа проекта и сборка .exe
         shell: pwsh
         run: |
-          # Если это React/Vite проект с package.json — сначала собираем статику
-          if (Test-Path package.json) {
-            npm install
-            $pkg = Get-Content package.json -Raw | ConvertFrom-Json
-            if ($pkg.scripts.build) {
+          $ErrorActionPreference = "Stop"
+          Write-Host "=== Список файлов в репозитории ==="
+          Get-ChildItem -Recurse -Depth 2 | Where-Object { $_.FullName -notmatch "\\\.git" } | Select-Object FullName
+
+          # 1. Проверяем, не Python ли это проект
+          $pyFile = Get-ChildItem -Recurse -Filter *.py | Where-Object { $_.FullName -notmatch "\\\.git" } | Select-Object -First 1
+          $pkgJson = Get-ChildItem -Recurse -Filter package.json | Where-Object { $_.FullName -notmatch "node_modules" } | Select-Object -First 1
+          $htmlFile = Get-ChildItem -Recurse -Filter *.html | Where-Object { $_.FullName -notmatch "node_modules" } | Select-Object -First 1
+
+          if ($pyFile -and -not $pkgJson -and -not $htmlFile) {
+            Write-Host "Обнаружен Python-проект: $($pyFile.FullName)"
+            python -m pip install --upgrade pip pyinstaller
+            $req = Get-ChildItem -Recurse -Filter requirements.txt | Select-Object -First 1
+            if ($req) { pip install -r $req.FullName }
+            pyinstaller --onefile --noconsole --name "ArbSniper" $pyFile.FullName
+            New-Item -ItemType Directory -Force -Path "final-artifact" | Out-Null
+            Copy-Item "dist/ArbSniper.exe" -Destination "final-artifact/"
+            exit 0
+          }
+
+          # 2. Веб / React / JS проект — создаём изолированную временную папку вне репозитория
+          $workDir = Join-Path $env:RUNNER_TEMP "arbsniper-app"
+          New-Item -ItemType Directory -Force -Path $workDir | Out-Null
+
+          if ($pkgJson) {
+            $projDir = $pkgJson.DirectoryName
+            Write-Host "Найден package.json в: $projDir"
+            Push-Location $projDir
+            npm install --legacy-peer-deps
+            $pkgContent = Get-Content $pkgJson.FullName -Raw | ConvertFrom-Json
+            if ($pkgContent.scripts -and $pkgContent.scripts.build) {
+              Write-Host "Запускаем npm run build..."
               npm run build
+            }
+            if (Test-Path "dist/index.html") {
+              Copy-Item "dist/*" -Destination $workDir -Recurse -Force
+            } elseif (Test-Path "build/index.html") {
+              Copy-Item "build/*" -Destination $workDir -Recurse -Force
+            } else {
+              Get-ChildItem -Exclude "node_modules",".git" | Copy-Item -Destination $workDir -Recurse -Force
+            }
+            Pop-Location
+          } elseif ($htmlFile) {
+            Write-Host "Найден HTML-файл: $($htmlFile.FullName)"
+            $htmlDir = $htmlFile.DirectoryName
+            Get-ChildItem -Path $htmlDir -Exclude ".git",".github" | Copy-Item -Destination $workDir -Recurse -Force
+            if ($htmlFile.Name -ne "index.html") {
+              Copy-Item (Join-Path $workDir $htmlFile.Name) (Join-Path $workDir "index.html") -Force
+            }
+          } else {
+            # Если в репозитории лежит только .jsx / .tsx / .js компонент без HTML
+            $reactFile = Get-ChildItem -Recurse -Include *.jsx,*.tsx,*.js | Where-Object { $_.FullName -notmatch "\\\.git" } | Select-Object -First 1
+            if ($reactFile) {
+              Write-Host "Найден одиночный скрипт $($reactFile.Name), оборачиваем в интерфейс..."
+              Copy-Item $reactFile.FullName -Destination (Join-Path $workDir "app.jsx")
+              @"
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8" />
+            <title>ArbSniper</title>
+            <script src="https://cdn.tailwindcss.com"></script>
+          </head>
+          <body class="bg-slate-950 text-white">
+            <div id="root">Загрузка интерфейса ArbSniper...</div>
+          </body>
+          </html>
+          "@ | Set-Content -Path (Join-Path $workDir "index.html") -Encoding UTF8
             }
           }
 
-          # Определяем папку с готовым интерфейсом (dist, build или корень)
-          $webDir = "."
-          if (Test-Path "dist/index.html") { $webDir = "dist" }
-          elseif (Test-Path "build/index.html") { $webDir = "build" }
-
-          # Создаём лёгкую обёртку Electron для превращения в .exe
-          mkdir electron-wrap
-          Copy-Item "$webDir\*" -Destination "electron-wrap" -Recurse -Force
-          cd electron-wrap
+          # 3. Упаковываем в .exe через Electron во временной папке (без конфликтов путей)
+          Push-Location $workDir
 
           @"
           const { app, BrowserWindow } = require('electron');
@@ -63,10 +121,15 @@ jobs:
           }
           "@ | Set-Content -Path "package.json" -Encoding UTF8
 
+          npm install --save-dev electron
           npx --yes @electron/packager . ArbSniper --platform=win32 --arch=x64 --out=out-exe --overwrite
+
+          Pop-Location
+          New-Item -ItemType Directory -Force -Path "final-artifact" | Out-Null
+          Copy-Item "$workDir/out-exe/ArbSniper-win32-x64/*" -Destination "final-artifact/" -Recurse -Force
 
       - name: Выгрузка готового .exe
         uses: actions/upload-artifact@v4
         with:
-          name: ArbSniper-Desktop-Windows
-          path: electron-wrap/out-exe/ArbSniper-win32-x64/
+          name: ArbSniper-Windows-EXE
+          path: final-artifact/
