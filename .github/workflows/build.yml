@@ -1,0 +1,72 @@
+name: Build Desktop App EXE (Web/JS)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Скачивание кода
+        uses: actions/checkout@v4
+
+      - name: Установка Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Подготовка и упаковка в .exe
+        shell: pwsh
+        run: |
+          # Если это React/Vite проект с package.json — сначала собираем статику
+          if (Test-Path package.json) {
+            npm install
+            $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+            if ($pkg.scripts.build) {
+              npm run build
+            }
+          }
+
+          # Определяем папку с готовым интерфейсом (dist, build или корень)
+          $webDir = "."
+          if (Test-Path "dist/index.html") { $webDir = "dist" }
+          elseif (Test-Path "build/index.html") { $webDir = "build" }
+
+          # Создаём лёгкую обёртку Electron для превращения в .exe
+          mkdir electron-wrap
+          Copy-Item "$webDir\*" -Destination "electron-wrap" -Recurse -Force
+          cd electron-wrap
+
+          @"
+          const { app, BrowserWindow } = require('electron');
+          function createWindow () {
+            const win = new BrowserWindow({
+              width: 1280,
+              height: 820,
+              autoHideMenuBar: true,
+              webPreferences: { nodeIntegration: true, contextIsolation: false }
+            });
+            win.loadFile('index.html');
+          }
+          app.whenReady().then(createWindow);
+          app.on('window-all-closed', () => app.quit());
+          "@ | Set-Content -Path "electron-main.js" -Encoding UTF8
+
+          @"
+          {
+            "name": "arbsniper",
+            "version": "1.0.0",
+            "main": "electron-main.js"
+          }
+          "@ | Set-Content -Path "package.json" -Encoding UTF8
+
+          npx --yes @electron/packager . ArbSniper --platform=win32 --arch=x64 --out=out-exe --overwrite
+
+      - name: Выгрузка готового .exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: ArbSniper-Desktop-Windows
+          path: electron-wrap/out-exe/ArbSniper-win32-x64/
