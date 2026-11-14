@@ -1,0 +1,11 @@
+{
+  "name": "arbsniper",
+  "private": true,
+  "version": "0.1.0",
+  "description": "ArbSniper — радар P2P-спредов. Статический UI без сборки (frontendDist -> ui/).",
+  "scripts": {
+    "dev": "cargo tauri dev",
+    "build": "cargo tauri build"
+  },
+  "license": "MIT"
+}

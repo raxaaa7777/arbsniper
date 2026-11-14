@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Разрешения ArbSniper: без fs/shell, сеть только через Rust-команды; хосты зафиксированы CSP.",
+  "local": true,
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-close",
+    "core:app:allow-version",
+    "core:event:default",
+    "core:event:allow-emit",
+    "core:event:allow-listen",
+    "notification:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister"
+  ]
+}

@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ArbSniper</title>
+  <link rel="stylesheet" href="main.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-badge">⌖</span>
+      <span class="brand-name" data-i18n="app.name">ArbSniper</span>
+      <span class="brand-sub" data-i18n="app.tagline">радар P2P-спредов</span>
+    </div>
+    <div class="topbar-right">
+      <div class="spot-ref">
+        <span data-i18n="spot.ref">Спот-ориентир</span>
+        <b id="spot-ref">—</b>
+      </div>
+      <div class="lang-switch">
+        <button id="lang-ru">RU</button>
+        <button id="lang-en">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Живое окно: большой сигнал -->
+  <section id="alert-banner" class="alert-banner hidden" role="alert">
+    <div class="alert-title">⚡ <span data-i18n="alert.title">ЖИВОЕ ОКНО</span></div>
+    <div id="alert-text" class="alert-body"></div>
+  </section>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="radar">⌖ <span data-i18n="tab.radar">Радар</span></button>
+    <button class="tab" data-tab="calc">Σ <span data-i18n="tab.calc">Калькулятор</span></button>
+    <button class="tab" data-tab="settings">⚙ <span data-i18n="tab.settings">Настройки</span></button>
+  </nav>
+
+  <!-- РАДАР -->
+  <main id="tab-radar" class="tab-page active">
+    <div class="radar-status">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text" data-i18n="radar.scanning">Сканирую витрины…</span>
+      <span class="spacer"></span>
+      <label class="mini-toggle">
+        <input type="checkbox" id="live-toggle" checked />
+        <span data-i18n="radar.live">Live</span>
+      </label>
+      <button id="btn-scan" class="btn small" data-i18n="radar.scan">Скан</button>
+    </div>
+
+    <section class="card">
+      <h2 data-i18n="radar.windows">Окна спреда</h2>
+      <p class="hint" data-i18n="radar.windows.hint">Лучшие пары «где купить → где продать». Прибыль считается на объём из настроек, за вычетом комиссий.</p>
+      <div id="windows" class="windows"></div>
+      <p id="windows-empty" class="hint" data-i18n="radar.windows.empty">Пока нет окон выше порога. Радар продолжает сканировать.</p>
+    </section>
+
+    <section class="card">
+      <h2 data-i18n="radar.books">Витрины по биржам</h2>
+      <div id="venues" class="venues"></div>
+    </section>
+  </main>
+
+  <!-- КАЛЬКУЛЯТОР -->
+  <main id="tab-calc" class="tab-page">
+    <section class="card">
+      <h2 data-i18n="calc.title">Калькулятор сделки</h2>
+      <div class="form-grid">
+        <label><span data-i18n="calc.buy">Цена покупки (фиат за USDT)</span>
+          <input id="calc-buy" type="number" step="0.01" value="90.00" />
+        </label>
+        <label><span data-i18n="calc.sell">Цена продажи</span>
+          <input id="calc-sell" type="number" step="0.01" value="92.00" />
+        </label>
+        <label><span data-i18n="calc.vol">Объём (USDT)</span>
+          <input id="calc-vol" type="number" step="100" value="1000" />
+        </label>
+        <label><span data-i18n="calc.fees">Комиссии круга, %</span>
+          <input id="calc-fees" type="number" step="0.1" value="0.2" />
+        </label>
+      </div>
+      <div id="calc-result" class="calc-result"></div>
+    </section>
+    <section class="card">
+      <h2 data-i18n="calc.journal">Журнал сигналов</h2>
+      <ul id="signal-log" class="log"></ul>
+      <p id="log-empty" class="hint" data-i18n="calc.log.empty">Пока тихо. Живые окна появятся здесь с историей.</p>
+    </section>
+  </main>
+
+  <!-- НАСТРОЙКИ -->
+  <main id="tab-settings" class="tab-page">
+    <section class="card">
+      <h2 data-i18n="set.radar">Радар</h2>
+      <label class="field-row">
+        <span data-i18n="set.fiat">Фиат</span>
+        <select id="set-fiat">
+          <option value="RUB">RUB</option>
+          <option value="USD">USD</option>
+          <option value="EUR">EUR</option>
+          <option value="TRY">TRY</option>
+        </select>
+      </label>
+      <label class="field-row">
+        <span data-i18n="set.source">Источник данных</span>
+        <select id="set-source">
+          <option value="demo" data-i18n="set.source.demo">Demo (встроенная витрина)</option>
+          <option value="live" data-i18n="set.source.live">Live (Binance + Bybit P2P)</option>
+        </select>
+      </label>
+      <label class="field-row">
+        <span data-i18n="set.poll">Период скана, сек</span>
+        <input id="set-poll" type="number" min="5" max="600" step="5" value="30" />
+      </label>
+      <label class="field-row">
+        <span data-i18n="set.minspread">Порог сигнала, %</span>
+        <input id="set-minspread" type="number" min="0.1" max="20" step="0.1" value="1.5" />
+      </label>
+    </section>
+    <section class="card">
+      <h2 data-i18n="set.trade">Сделка</h2>
+      <label class="field-row">
+        <span data-i18n="set.volume">Расчётный объём, USDT</span>
+        <input id="set-trade" type="number" min="100" step="100" value="1000" />
+      </label>
+      <label class="field-row">
+        <span data-i18n="set.fees">Комиссии круга, %</span>
+        <input id="set-fees" type="number" min="0" max="10" step="0.1" value="0.2" />
+      </label>
+    </section>
+    <section class="card">
+      <h2 data-i18n="set.alerts">Сигналы</h2>
+      <label class="switch-row">
+        <input type="checkbox" id="set-sound" />
+        <span data-i18n="set.sound">Звук уведомлений</span>
+      </label>
+      <label class="switch-row">
+        <input type="checkbox" id="set-tray" />
+        <span data-i18n="set.tray">Счётчик живых окон в трее</span>
+      </label>
+      <p class="hint" data-i18n="set.hotkey">Глобальный хоткей Alt+S показывает/прячет окно из любого места.</p>
+    </section>
+    <section class="card">
+      <h2 data-i18n="set.about">О программе</h2>
+      <p class="hint" data-i18n="set.about.text">ArbSniper — не биржа и не кошелёк: он только находит окна. Решение и риск всегда за вами. Live-витрины открываются с домашнего IP; из облачных IP биржи закрывают доступ (WAF).</p>
+    </section>
+  </main>
+
+  <script src="i18n.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
