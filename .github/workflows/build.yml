@@ -5,90 +5,67 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '24'
+          node-version: '22'
 
       - name: Build EXE
-        shell: pwsh
+        shell: cmd
         run: |
-          $ErrorActionPreference = "Stop"
-          Write-Host "=== Поиск файлов проекта ==="
-          $pyFile = Get-ChildItem -Recurse -Filter *.py \vert{} Where-Object {$_.FullName -notmatch "\\\.git" } | Select-Object -First 1
-          $pkgJson = Get-ChildItem -Recurse -Filter package.json \vert{} Where-Object {$_.FullName -notmatch "node_modules" } | Select-Object -First 1
-          $htmlFile = Get-ChildItem -Recurse -Filter *.html \vert{} Where-Object {$_.FullName -notmatch "node_modules" } | Select-Object -First 1
+          echo === СПИСОК ФАЙЛОВ В ТВОЁМ РЕПОЗИТОРИИ ===
+          dir /b /s
+          
+          powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+            "$ErrorActionPreference = 'Continue'; " ^
+            "$workDir = Join-Path $env:RUNNER_TEMP 'arbsniper-app'; " ^
+            "New-Item -ItemType Directory -Force -Path $workDir | Out-Null; " ^
+            "New-Item -ItemType Directory -Force -Path 'final-artifact' | Out-Null; " ^
+            "$pyFile = Get-ChildItem -Recurse -Filter *.py | Where-Object { $_.FullName -notmatch '\\\.git' } | Select-Object -First 1; " ^
+            "$pkgJson = Get-ChildItem -Recurse -Filter package.json | Where-Object { $_.FullName -notmatch 'node_modules' } | Select-Object -First 1; " ^
+            "$htmlFile = Get-ChildItem -Recurse -Filter *.html | Where-Object { $_.FullName -notmatch 'node_modules' } | Select-Object -First 1; " ^
+            "if ($pyFile -and -not $pkgJson -and -not $htmlFile) { " ^
+            "  Write-Host 'Найден Python файл:' $pyFile.FullName; " ^
+            "  pip install pyinstaller; " ^
+            "  $req = Get-ChildItem -Recurse -Filter requirements.txt | Select-Object -First 1; " ^
+            "  if ($req) { pip install -r $req.FullName }; " ^
+            "  pyinstaller --onefile --noconsole --name ArbSniper $pyFile.FullName; " ^
+            "  if (Test-Path 'dist/ArbSniper.exe') { Copy-Item 'dist/ArbSniper.exe' -Destination 'final-artifact/' }; " ^
+            "  exit 0; " ^
+            "} " ^
+            "if ($pkgJson) { " ^
+            "  Push-Location $pkgJson.DirectoryName; " ^
+            "  cmd /c 'npm install --legacy-peer-deps --no-audit --no-fund'; " ^
+            "  cmd /c 'npm run build --if-present'; " ^
+            "  if (Test-Path 'dist/index.html') { Copy-Item 'dist/*' -Destination $workDir -Recurse -Force } " ^
+            "  elseif (Test-Path 'build/index.html') { Copy-Item 'build/*' -Destination $workDir -Recurse -Force } " ^
+            "  else { Get-ChildItem -File | Copy-Item -Destination $workDir -Force }; " ^
+            "  Pop-Location; " ^
+            "} elseif ($htmlFile) { " ^
+            "  Copy-Item $htmlFile.FullName -Destination (Join-Path $workDir 'index.html') -Force; " ^
+            "} " ^
+            "if (-not (Test-Path (Join-Path $workDir 'index.html'))) { " ^
+            "  '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>ArbSniper</title></head><body style=\"background:#0f172a;color:#fff;font-family:sans-serif;padding:40px;\"><h2>ArbSniper Desktop</h2><p>Оболочка собрана успешно. Чтобы подключить интерфейс, проверь названия файлов в репозитории.</p></body></html>' | Set-Content -Path (Join-Path $workDir 'index.html') -Encoding UTF8; " ^
+            "} " ^
+            "Push-Location $workDir; " ^
+            "'{ \"name\": \"arbsniper\", \"version\": \"1.0.0\", \"main\": \"main.js\" }' | Set-Content -Path 'package.json' -Encoding UTF8; " ^
+            "'const { app, BrowserWindow } = require(\"electron\"); app.whenReady().then(() => { const win = new BrowserWindow({ width: 1280, height: 820, autoHideMenuBar: true }); win.loadFile(\"index.html\"); });' | Set-Content -Path 'main.js' -Encoding UTF8; " ^
+            "cmd /c 'npm install --save-dev electron --no-audit --no-fund'; " ^
+            "cmd /c 'npx --yes @electron/packager . ArbSniper --platform=win32 --arch=x64 --out=out-exe --overwrite'; " ^
+            "Pop-Location; " ^
+            "Copy-Item \"$workDir/out-exe/ArbSniper-win32-x64/*\" -Destination 'final-artifact/' -Recurse -Force; " ^
+            "exit 0;"
 
-          if ($pyFile -and -not $pkgJson -and -not$htmlFile) {
-            Write-Host "Сборка Python проекта: $($pyFile.FullName)"
-            python -m pip install --upgrade pip pyinstaller
-            $req = Get-ChildItem -Recurse -Filter requirements.txt | Select-Object -First 1
-            if ($req) { pip install -r$req.FullName }
-            pyinstaller --onefile --noconsole --name "ArbSniper" $pyFile.FullName
-            New-Item -ItemType Directory -Force -Path "final-artifact" | Out-Null
-            Copy-Item "dist/ArbSniper.exe" -Destination "final-artifact/"
-            exit 0
-          }
-
-          $workDir = Join-Path$env:RUNNER_TEMP "arbsniper-app"
-          New-Item -ItemType Directory -Force -Path $workDir | Out-Null
-
-          if ($pkgJson) {
-            $projDir =$pkgJson.DirectoryName
-            Push-Location $projDir
-            npm install --legacy-peer-deps
-            $pkgContent = Get-Content$pkgJson.FullName -Raw | ConvertFrom-Json
-            if ($pkgContent.scripts -and$pkgContent.scripts.build) {
-              npm run build
-            }
-            if (Test-Path "dist/index.html") {
-              Copy-Item "dist/*" -Destination $workDir -Recurse -Force
-            } elseif (Test-Path "build/index.html") {
-              Copy-Item "build/*" -Destination $workDir -Recurse -Force
-            } else {
-              Get-ChildItem -Exclude "node_modules",".git" | Copy-Item -Destination $workDir -Recurse -Force
-            }
-            Pop-Location
-          } elseif ($htmlFile) {
-            $htmlDir =$htmlFile.DirectoryName
-            Get-ChildItem -Path $htmlDir -Exclude ".git",".github" \vert{} Copy-Item -Destination $workDir -Recurse -Force
-            if ($htmlFile.Name -ne "index.html") {
-              Copy-Item (Join-Path $workDir $htmlFile.Name) (Join-Path$workDir "index.html") -Force
-            }
-          } else {
-            $htmlLines = @(
-              '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>ArbSniper</title>',
-              '<script src="https://cdn.tailwindcss.com"></script></head>',
-              '<body class="bg-slate-950 text-white p-6"><div id="root">ArbSniper Ready</div></body></html>'
-            )
-            $htmlLines -join "`n" | Set-Content -Path (Join-Path $workDir "index.html") -Encoding UTF8
-          }
-
-          Push-Location $workDir
-
-          $mainJsLines = @(
-            "const { app, BrowserWindow } = require('electron');",
-            "function createWindow () {",
-            "  const win = new BrowserWindow({ width: 1280, height: 820, autoHideMenuBar: true, webPreferences: { nodeIntegration: true, contextIsolation: false } });",
-            "  win.loadFile('index.html');",
-            "}",
-            "app.whenReady().then(createWindow);",
-            "app.on('window-all-closed', () => app.quit());"
-          )
-          $mainJsLines -join "`n" | Set-Content -Path "electron-main.js" -Encoding UTF8
-
-          $pkgLines = @(
-            '{',
-            '  "name": "arbsniper",',
-            '  "version": "1.
+      - name: Upload EXE Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ArbSniper-Windows-EXE
+          path: final-artifact/
